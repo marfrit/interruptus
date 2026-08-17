@@ -464,14 +464,123 @@ activation generalizability.
 - The probe predicts pass/fail on self-checking code tasks — broader
   "answer quality" has no such free oracle.
 
-### What this unlocks
+## whisper: steering-direction inheritance — and an honest kill by control
 
-Two things, both now build tasks rather than measurement tasks:
-activation-based routing inside a self-hosted fleet — the prefill you pay
-anyway yields the routing signal, and API-hosted models are structurally
-excluded because they expose no activations — and steering-direction
-inheritance: mine a direction library once, map it to each local model via
-the pivot; llama.cpp control vectors are the stock mechanism.
+vecsperanto ended with two build candidates. This chapter is the second one
+being tested — and mostly the story of a pre-registered control doing its
+job.
+
+### Why
+
+If probes can be inherited, can STEERING directions? The use case: an
+architect agent whispers behavioral hints to a coder agent — "watch boundary
+conditions" — not as prompt text but as a nudge in activation space. The
+mechanism is stock llama.cpp: control vectors, applied with
+`--control-vector-scaled FILE:SCALE`. No custom inference code anywhere —
+if this works, it works with tools every llama.cpp fleet already has.
+
+The claim to beat was pre-registered the same way the vecsperanto gates
+were: a whisper earns deployment only if it beats its controls on pass
+rate. Spoiler in the chapter title.
+
+### Mining the directions
+
+On qwen36-27b-coder: 3 concepts (boundary-care, naming-quality,
+none/edge-care), mined from 60 MBPP tasks crossed with careful/careless
+persona pairs, ChatML-wrapped — the template cancels in the difference —
+for 360 prompts total. Last-token residuals from L24–30,
+difference-in-means per layer. Held-out persona separation: AUC 1.000
+everywhere. That number is expected, not impressive — the personas are
+explicit in the prompt, so 1.000 validates the mining pipeline, not any
+behavioral effect. Export: one unit-norm GGUF per concept, 57 KB.
+
+### Dose is regime-dependent
+
+The workable scale depends on the sampling regime. In thinking mode the
+window is ~0.5 and produces spontaneous edge-case analysis; in no-think
+mode it is 0.1–0.2. At 0.3 the vector forces deliberation THROUGH the
+no-think template, and 0.5 destroys output. The overdose signature is the
+interesting part: it is SEMANTIC. At scale 12 the model can only say
+boundary-care vocabulary ("gracefully", "Empty") — evidence the direction
+encodes the concept, not noise.
+
+### Blanket whisper: fails hard
+
+Boundary-care at 0.5 — calibrated in the wrong regime, our mistake,
+documented — on all 164 HumanEval tasks, `thinking:false`: pass count
+137/164 → 64/164. That is 74 pass→fail against 1 fail→pass. Diagnosis in
+the transcripts: median generation length 744 → 1236 chars — over-engineering
+rambling. There is also a structural asymmetry no dose tuning escapes: with
+a strong baseline, the upside is 27 tasks and the downside is 137.
+
+### Targeted rescue looked good — then the control killed it
+
+The defensible deployment shape: whisper only at the 27 deterministic
+baseline fails (greedy decoding, so every rescue is causal). At dose 0.2,
+boundary-care rescued 3/27. Promising — until the controls came back:
+
+- none/edge-care rescued 3/27 — with IDENTICAL task ids;
+- naming-quality ("choose better names" — a concept that cannot fix logic)
+  rescued 5/27;
+- a RANDOM unit vector rescued 3/27;
+- one task flipped under ALL four vectors.
+
+Verdict: the rescue effect is perturbation resampling of borderline tasks,
+NOT concept-specific steering. Any nudge shakes a few marginal tasks across
+the line. Without the random control this would have shipped as "boundary
+whispers rescue 11% of hard fails" — a clean, publishable, wrong sentence.
+The pre-registered control killed the claim before publication instead of
+after, which is the entire reason it was pre-registered.
+
+### Cross-model inheritance (qwen → gemma-4-12b via the vecsperanto pivot)
+
+Only 41% of the direction norm lies in the pivot's PCA span. And doses are
+NOT portable: gemma's hidden norm is 142 vs qwen's 3.2 — a 45× gap — so
+doses 0.5–32 were byte-identical no-ops. That looked like transfer failure
+and was actually homeopathy; the norm-calibrated window runs from ~48
+(nothing) to 64 (breakage).
+
+That episode is worth a rule of its own: dose lives in the target model's
+units, not the source's. Measure the target's hidden-state norm BEFORE
+concluding anything from a steering sweep — a no-op at every scale you
+tried is indistinguishable from "transfer is impossible" until you notice
+your largest dose was still a rounding error to the recipient.
+
+The A/B result that survives: the inherited direction at 64/80 keeps gemma
+on-task and forces boundary-flavored deliberation into its comments ("If n
+is 0... if n is greater than the list length"), while a random vector of
+EQUAL magnitude collapses output into token salad instantly. The 41% that
+fit through the pivot carry the meaning. Utility, though: rescue on gemma's
+23 fails at dose 56 — inherited 1/23 vs random 0/23. Statistically nothing.
+
+### Ledger
+
+- **Directions encode concepts** — proven three independent ways: semantic
+  overdose, forced on-topic deliberation, and the on-task-vs-salad A/B.
+- **Whisper utility for pass rates: refuted** at every deployment shape
+  tested.
+- Side finding: tiny perturbation vectors act as retry-diversification
+  under greedy decoding — ~11% of deterministic fails flip — which is
+  equivalent to temperature, dressed as a vector.
+- Practical consequence: the direction library is NOT being productionized.
+  What survives into deployment is probe-gated retry — the interruptus
+  probe carries the utility, the whisper vector does not.
+
+Limits, inline and prominent: one prompt for the dose-finding smokes;
+rescue sets of only 27 and 23 tasks; a single model pair; HumanEval only.
+
+## What this unlocks
+
+One build task survived its experiments, one did not. Activation-based
+routing inside a self-hosted fleet stands: the prefill you pay anyway
+yields the routing signal (API-hosted models are structurally excluded —
+they expose no activations), and the whisper ledger sharpened its concrete
+deployment shape into probe-gated retry. Steering-direction inheritance was
+the other candidate, and the whisper chapter is its honest obituary: the
+pivot demonstrably carries concept content across model boundaries, but the
+utility claim — whispered directions improving pass rates — was refuted at
+every deployment shape tested. Mine-once-map-everywhere remains technically
+true and, for this use case, practically pointless.
 
 ---
 
