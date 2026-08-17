@@ -549,8 +549,15 @@ your largest dose was still a rounding error to the recipient.
 The A/B result that survives: the inherited direction at 64/80 keeps gemma
 on-task and forces boundary-flavored deliberation into its comments ("If n
 is 0... if n is greater than the list length"), while a random vector of
-EQUAL magnitude collapses output into token salad instantly. The 41% that
-fit through the pivot carry the meaning. Utility, though: rescue on gemma's
+EQUAL magnitude collapses output into token salad instantly. An earlier
+draft of this chapter concluded from that contrast that "the 41% that fit
+through the pivot carry the meaning" — that sentence is now measured to be
+wrong. The boundary direction was later mined NATIVELY on gemma, and
+cos(native, inherited) = +0.018: the inherited direction was practically
+orthogonal to the true one. What survived the A/B was the GENERIC
+code-task/deliberation component, not the concept's identity. The A/B
+contrast stands as a measurement; its interpretation here was too generous
+(see the postscript below). Utility, in any case: rescue on gemma's
 23 fails at dose 56 — inherited 1/23 vs random 0/23. Statistically nothing.
 
 ### Ledger
@@ -565,6 +572,37 @@ fit through the pivot carry the meaning. Utility, though: rescue on gemma's
 - Practical consequence: the direction library is NOT being productionized.
   What survives into deployment is probe-gated retry — the interruptus
   probe carries the utility, the whisper vector does not.
+
+### Postscript: a read-write asymmetry
+
+The follow-up measurement that corrected the "41% carry the meaning" claim
+also produced the chapter's cleanest finding, so it gets its own few
+paragraphs.
+
+First: native mining on gemma works. The same 360 contrast prompts,
+rendered with gemma's own template, layers L29–36 — separation 1.000. At
+dose ~40, gemma produces boundary-hardened code: type hints, an explicit
+`n<=0` guard, edge-case docstrings. Overdose at 64. Same dose-curve shape
+as qwen. gemma is steerable — natively. So nothing is wrong with the model
+or the mechanism.
+
+But the natively-mined boundary direction against the inherited one:
+cos(native, inherited) = **+0.018**. Practically orthogonal. And this is
+not fixable by feeding the pivot more of the right data: adding the 360
+steering-region anchor PAIRS (both models, semantically paired) to the
+pivot fixes RETENTION — the direction's norm coverage goes 0.41 → 1.00 —
+but not the MAP: the cosine rises only to +0.117, regardless of anchor
+weighting (×1/×5/×15).
+
+The conclusion this forces: a READ-WRITE ASYMMETRY of linear activation
+alignment. The same rotation that aligns content geometry — retrieval
+0.960, probe transfer 0.854 — does NOT align steering-response geometry.
+Reading inherits linearly; writing does not. Scoped honestly: this model
+pair, and nonlinear maps are untested — though the MLP already overfit on
+the easier content-map task, so hopes there should be modest.
+
+Practical consequence in one line: inherit probes, mine steering
+directions per model (~1.5 h per model — cheap).
 
 Limits, inline and prominent: one prompt for the dose-finding smokes;
 rescue sets of only 27 and 23 tasks; a single model pair; HumanEval only.
