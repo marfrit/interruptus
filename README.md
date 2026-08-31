@@ -8,7 +8,9 @@ hypothesis — which came out red, in an interesting way.
 *This write-up has grown since the first version. The original experiment
 (M1) is kept as written; two follow-ups (M2, M3) that close its open thread
 are added below, and the old one-paragraph "future work" note has been
-replaced by a synthesis of all three.*
+replaced by a synthesis of all three. A later pass re-ran M2/M3 at nine
+times the scale and added a truncation measurement — both reported below,
+with the v1 numbers likewise kept as written.*
 
 ---
 
@@ -254,7 +256,9 @@ Same 9 traces. Every mid-`<think>` ```` ```python ```` draft is EXECUTED
 against the task's own HumanEval tests in the bwrap sandbox (no net, tmpfs
 home, timeout), plus AST-identity matching against the final answer, at
 three match levels. `commitment_index` = first matching draft token /
-`</think>` token.
+`</think>` token. (A text-level quantity, measured on the draft text — not
+the same thing as M1's activation-space commitment index; the hardening
+section below spells out the distinction.)
 
 ### Numbers
 
@@ -307,6 +311,126 @@ per-model artifact, so every new fleet model would need its own labeling
 campaign. That limitation turned out to be solvable — see the vecsperanto
 chapter below.
 
+## Hardening: M2/M3 at nine times the scale
+
+The Limitations section below originally closed by calling a balanced
+sweep — MBPP, more failing runs, more tasks, faster hardware — "the natural
+v2". That sweep was run on 2026-08-20; this section reports it. The v1
+sections above (9 runs) are kept as written.
+
+### Corpus
+
+A 120-task bank, balanced by the thinking:false difficulty prior from the
+labeling sweep: all 27 HumanEval fails plus 33 HumanEval passes, and 30 MBPP
+fails plus 30 MBPP passes. Prompts rendered with the model's default
+thinking-on chat template. Trace generation moved to a faster box in the
+fleet ("bosch", the GB10 machine) — 119 per-token L29 traces, roughly 320k
+generated tokens, in about 150 minutes; at boltzmann's ~7 tok/s the same
+corpus would have been half a day of pure decode. Analysis stayed local.
+
+Of the 119 traces, 82 reach a clean `</think>`; the rest ran into the
+4096-token cap and have no commitment boundary to measure against. Two
+token-misaligned runs are additionally excluded from M2, so M2 has n=80 and
+M3 has n=82. Note who the cap eats: failing runs ramble (the M1 side
+finding), so the capped exclusions fall disproportionately on the fail
+class — the fail-enriched selection above still yields only 7 genuine
+completed failures at the bottom of this section.
+
+### M2 at scale: the mode axis still does not latch early
+
+Same leakage-free design as v1, run-level folds. Early-reasoning vs
+post-`</think>` held-out AUC: **1.000**. Middle/late reasoning vs
+post-`</think>`: **0.998**. Permanent-latch index `ci_perm`: median 0.999,
+**0/80** runs latch before `</think>` — and that zero is invariant across
+family, pass/fail, and every subgroup cut. v1's verdict survives nine times
+the data unchanged.
+
+One thing did sharpen: the transient draft-echo (`ci_first`) is
+family-dependent. On completed runs, HumanEval median 0.900 with 27/40 runs
+dipping below 0.95; MBPP median 1.000 with 11/37. The mid-chain excursions
+toward the committed side are largely a HumanEval drafting habit. The
+excluded middle stays essentially clean either way — median 4.1% of middle
+tokens read as committed (max 24%). Mode is definitively useless as an
+early-interrupt signal.
+
+### M3 at scale — and a naming cleanup first
+
+Two different quantities in this write-up share the words "commitment
+index", and they must not be conflated:
+
+- the **activation commitment index** (M1, and the detector-fragility note
+  in Limitations) is when the *probe projection* plateaus — a hidden-state
+  measure, which on this model sits near zero (~0.04) because the series is
+  flat from token one;
+- the **draft commitment index** (M3, this section) is when the *draft text*
+  inside `<think>` first matches the final answer — first matching draft
+  token / `</think>` token, a text-level measure, typically 0.3–0.5.
+
+They are different measurements of different things on different axes, and
+nothing in this write-up compares one to the other.
+
+Numbers at n=82 (v1's n=9 in parentheses): every run drafts inside
+`<think>` — 82/82, median 6 drafts per run. Draft commitment index medians:
+functional **0.28** (0.21), logic-identity **0.38** (0.43), exact **0.46**
+(0.59). 77/82 runs lock their final logic before `</think>`; 73/82 have at
+least one draft that already passes the tests, with the first passing draft
+at median 0.27 of the chain. The v1 picture — a working answer on the page
+by roughly a quarter of the chain, final logic locked well before
+`</think>`, the rest predominantly verification and formatting — survives
+with the numbers shifted modestly. One family difference: MBPP drafts
+commit slightly later and show no docstring-cosmetics gap (logic and exact
+medians are both 0.435 there; the functional-vs-exact spread of v1 was a
+HumanEval artifact).
+
+### Confidently wrong, quantified
+
+v1 had one anecdote (HE-38, wrong at 14% and never revised). At scale it is
+a class: 10/82 final answers fail, 7 of them completing naturally (the
+other 3 hit the cap). All **7/7** genuine failures had a draft
+logic-identical to their wrong final answer early in the chain — draft
+commitment index median **0.31** [0.23, 0.35]. And **0/7** ever produced
+any draft, at any point, that would have passed the tests. This model does
+not fail by drifting off a correct path late in the chain; it locks the
+wrong algorithm about a third of the way in and spends the rest verifying
+it. For the probe-gated-retry deployment shape this is the benign case:
+nothing in the discarded tail of a failing run was worth keeping.
+
+## Truncation: cutting the chain where M3 says it is done
+
+If the final logic is locked a third of the way into the think block, the
+back half of the block is mostly paid-for verification, and the obvious
+deployment experiment is to cut the chain at the first complete draft and
+measure what that costs. Pre-registered red criterion: a pass-rate drop of
+more than 3 points on a cut arm versus full = that arm is discarded.
+
+Mechanics are deliberately boring and client-side (`truncation/` in this
+repo, no llama.cpp patch): stream the completion, watch for the first
+complete fenced code block inside `<think>`, abort the stream, re-request
+with the partial think plus a forced `</think>` — with prompt caching the
+re-prefill is nearly free. Arms: `full` (untouched), `cut0` (cut at the
+draft), `cutN` (keep 128 grace tokens, then cut).
+
+Run on 40 HumanEval tasks, greedy, against **qwen3.8-27b** — deliberately a
+model the cut heuristic had never seen, since the heuristic comes from
+qwen3.6's M3 numbers. Results:
+
+- Pass: full 37/40, cut0 **38/40**, cutN 36/40. cut0 passes the red
+  criterion with a sign flip: it converts two would-be cap-runaways into
+  passes (full's 3 capped runs drop to 0 under cut0) and loses one task.
+- Cost: aggregate tokens **−36%** (40464 → 26058), wall time −37%.
+- The saving is self-selecting. The paired per-task median saving is only
+  +1% — on short runs the model drafts and stops on its own before the cut
+  can fire — but on the 16 tasks where the cut saved at least 20% of
+  tokens, the saving is 55% and cut0 passes 16/16 (full passed 14 of those
+  same 16). The cut fires exactly on the expensive runs.
+- cutN is strictly worse than cut0 here (two pass→fail flips, 3 capped
+  runs). The grace window buys nothing. Discarded.
+
+One test, one model, n=40, HumanEval-only — a deployment measurement, not a
+paper claim. But it is the M3 finding paying rent: the tail of the think
+block was measured to be mostly verification, and on this bench cutting it
+costs nothing.
+
 ## Limitations
 
 Stated plainly. M1:
@@ -320,12 +444,48 @@ Stated plainly. M1:
 
 M2/M3:
 
-- 9 runs, HumanEval only, and pass-heavy (8/9 final answers pass).
-- Simple tasks whose short solutions are easy to draft early — the ~21%
-  functional-commitment number may not survive harder task families.
+- v1 was 9 runs, HumanEval only, and pass-heavy (8/9 final answers pass).
+  The hardening run fixed the sample size and the family balance (n=80–82,
+  MBPP included, fails oversampled at selection time) — but not the far end
+  of the fail class: runs that ramble into the token cap have no `</think>`
+  boundary and drop out of the analysis, so the genuinely-wrong class is
+  still only n=7. The n=7 confidently-wrong result is consistent, not
+  powered.
+- Simple tasks whose short solutions are easy to draft early — the ~0.28
+  functional-commitment number (0.21 at v1 scale) may not survive harder
+  task families.
 - Functional match means behavioral equivalence with respect to the task's
   own test suite, no more; it is corroborated by the AST logic-identity
-  level (median 0.43), but it is not a proof of semantic identity.
+  level (median 0.38 at scale), but it is not a proof of semantic identity.
+
+**The activation commitment index is retrospective — and fragile if made
+causal.** Measured 2026-08-31, and stated here because the detector is part
+of this repo (`probes/analyze_commitment.py`): the Schmitt trigger sets its
+two thresholds from the min and max of the run's *entire* smoothed
+derivative series, i.e. it knows the run's future by construction. On the
+40 runs with saved per-token residuals, hold that retrospective detector
+fixed as the reference and make only the estimator causal (trailing-mean
+smoothing, window 5, dwell 8). Two threshold schemes were tried: running
+min/max over the prefix seen so far reproduces the onset to within 0.05 CI
+on 27/40 runs; fixing the thresholds in advance from the pooled derivative
+distribution of the *other* runs (leave-one-out) does best at **30/40 =
+75%**. Demanding more evidence destroys that best variant monotonically:
+dwell 8/16/24/32/48 tokens → 30/26/17/10/3 of 40 within 0.05, and at 128
+it never fires at all; widening the smoothing window does the same (5/9/15/25
+→ 30/24/8/0 of 40). The traces show why: there are no long quiet
+stretches. After the trigger, roughly a third of tokens (median 37–38%, in
+well- and badly-reproduced runs alike) still exceed the run's own upper
+threshold — the "plateau" is the first of many marginally quiet windows,
+not a regime change. A level-based statistic (standard deviation over a
+trailing 16-token window, pooled-quantile threshold) appeared to reach
+80% — but that was the best of 27 swept configurations, and under
+split-half validation (choose the configuration on one half, score on the
+other) it gives 65/90/80/70%, mean 76% — indistinguishable from the
+derivative version. This is a limitation of the measure, not a refutation
+of the finding — M1's conclusion is that the series is flat from token
+one, which needs no onset detector — but any number derived from the
+detector's onset, including the pass/fail comparison in the contamination
+discussion below, inherits this softness.
 
 **Benchmark contamination, and what the data say about it.** Both task
 families predate the model by roughly five years — HumanEval was published in
@@ -339,9 +499,10 @@ within our own probe fitting, not the model's pretraining.
 The data give the retrieval story only weak support. If early commitment were
 recall, the runs that *fail* — which by definition did not retrieve a correct
 solution — should commit markedly later. They barely do: over 40 runs with
-saved per-token residuals, median commitment index 0.056 for failing runs
-against 0.040 for passing ones, and in a pairwise comparison the passing run
-commits earlier in 59% of pairs, where 50% would mean no difference. Early
+saved per-token residuals, median activation commitment index 0.056 for
+failing runs against 0.040 for passing ones, and in a pairwise comparison
+the passing run commits earlier in 59% of pairs, where 50% would mean no
+difference. Early
 commitment survives in the class where retrieval demonstrably did not happen.
 
 That is an argument, not a control. Settling it needs task families the model
@@ -349,8 +510,13 @@ cannot have seen, with executable tests. If commitment moves later there, the
 finding was contamination; if it stays, the finding is stronger than it is
 today, because it will have survived the obvious objection.
 
-These are feasibility signals, not final statistics. A balanced sweep — MBPP,
-more failing runs, more tasks — on faster hardware is the natural v2.
+An earlier version of this section ended: "These are feasibility signals,
+not final statistics. A balanced sweep — MBPP, more failing runs, more
+tasks — on faster hardware is the natural v2." That sweep has since been
+run and is reported above (the hardening section); the sentence stays on
+the record because the sweep confirmed the v1 numbers rather than replacing
+them. What remains genuinely open: harder task families, and the
+contamination-proof task sets described in the previous paragraph.
 
 ## vecsperanto: probe inheritance across models
 
