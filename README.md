@@ -327,6 +327,28 @@ M2/M3:
   own test suite, no more; it is corroborated by the AST logic-identity
   level (median 0.43), but it is not a proof of semantic identity.
 
+**Benchmark contamination, and what the data say about it.** Both task
+families predate the model by roughly five years — HumanEval was published in
+July 2021, MBPP in August 2021, and the coder under study is a 2026 model.
+Neither set can be assumed unseen, and the central observation here is about
+*when a model commits*, which is exactly the kind of claim that retrieval
+rather than derivation would explain away. Nothing in the design controls for
+it: the leakage-free construction described above concerns train/test folds
+within our own probe fitting, not the model's pretraining.
+
+The data give the retrieval story only weak support. If early commitment were
+recall, the runs that *fail* — which by definition did not retrieve a correct
+solution — should commit markedly later. They barely do: over 40 runs with
+saved per-token residuals, median commitment index 0.056 for failing runs
+against 0.040 for passing ones, and in a pairwise comparison the passing run
+commits earlier in 59% of pairs, where 50% would mean no difference. Early
+commitment survives in the class where retrieval demonstrably did not happen.
+
+That is an argument, not a control. Settling it needs task families the model
+cannot have seen, with executable tests. If commitment moves later there, the
+finding was contamination; if it stays, the finding is stronger than it is
+today, because it will have survived the obvious objection.
+
 These are feasibility signals, not final statistics. A balanced sweep — MBPP,
 more failing runs, more tasks — on faster hardware is the natural v2.
 
