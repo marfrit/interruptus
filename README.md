@@ -458,34 +458,31 @@ M2/M3:
   own test suite, no more; it is corroborated by the AST logic-identity
   level (median 0.38 at scale), but it is not a proof of semantic identity.
 
-**The activation commitment index is retrospective — and fragile if made
-causal.** Measured 2026-08-31, and stated here because the detector is part
-of this repo (`probes/analyze_commitment.py`): the Schmitt trigger sets its
-two thresholds from the min and max of the run's *entire* smoothed
-derivative series, i.e. it knows the run's future by construction. On the
-40 runs with saved per-token residuals, hold that retrospective detector
-fixed as the reference and make only the estimator causal (trailing-mean
-smoothing, window 5, dwell 8). Two threshold schemes were tried: running
-min/max over the prefix seen so far reproduces the onset to within 0.05 CI
-on 27/40 runs; fixing the thresholds in advance from the pooled derivative
-distribution of the *other* runs (leave-one-out) does best at **30/40 =
-75%**. Demanding more evidence destroys that best variant monotonically:
-dwell 8/16/24/32/48 tokens → 30/26/17/10/3 of 40 within 0.05, and at 128
-it never fires at all; widening the smoothing window does the same (5/9/15/25
-→ 30/24/8/0 of 40). The traces show why: there are no long quiet
-stretches. After the trigger, roughly a third of tokens (median 37–38%, in
-well- and badly-reproduced runs alike) still exceed the run's own upper
-threshold — the "plateau" is the first of many marginally quiet windows,
-not a regime change. A level-based statistic (standard deviation over a
-trailing 16-token window, pooled-quantile threshold) appeared to reach
-80% — but that was the best of 27 swept configurations, and under
-split-half validation (choose the configuration on one half, score on the
-other) it gives 65/90/80/70%, mean 76% — indistinguishable from the
-derivative version. This is a limitation of the measure, not a refutation
-of the finding — M1's conclusion is that the series is flat from token
-one, which needs no onset detector — but any number derived from the
-detector's onset, including the pass/fail comparison in the contamination
-discussion below, inherits this softness.
+**The commitment index is retrospective by construction — and the causal
+figures once published here were measured on the wrong projection.** The
+Schmitt trigger sets its two thresholds from the min and max of the run's
+*entire* smoothed derivative series, so it knows the run's future by
+construction; that part stands, and anyone wanting to trigger on it online
+should know it.
+
+The rest of what stood here is withdrawn. A study of causal estimators
+(2026-08-31) reported that the retrospective onset could be reproduced on
+30 of 40 runs and that longer dwell or wider smoothing destroyed that
+agreement. Those runs were projected onto `probe_L29.npz` — the
+**thinking:false** direction — while the traces themselves are thinking:true
+generations, and they used the 1024-token attempt-1 corpus rather than the
+4096-token completed chains of attempt 2. That is precisely the pairing this
+paper identifies as the 0.44 artifact. Re-run on `gate_gen` with
+`probe_L29_tt.npz`, the difference is not subtle: projection standard
+deviation 0.75 against 5.87, smoothed-derivative range 1.92 against 12.75.
+
+On the corrected direction there is no plateau to reproduce. The series is
+the flat noise band reported in M1, the trigger fires at whatever token the
+noise first happens to go quiet (median 32), and asking whether a causal
+estimator can hit that position is asking it to predict noise. The question
+does not arise for this signal. The scripts are kept in
+`probes/causal-commitment/` because the code is correct and the mistake is
+instructive; their README says what they actually measured.
 
 **Benchmark contamination, and what the data say about it.** Both task
 families predate the model by roughly five years — HumanEval was published in
@@ -496,14 +493,13 @@ rather than derivation would explain away. Nothing in the design controls for
 it: the leakage-free construction described above concerns train/test folds
 within our own probe fitting, not the model's pretraining.
 
-The data give the retrieval story only weak support. If early commitment were
-recall, the runs that *fail* — which by definition did not retrieve a correct
-solution — should commit markedly later. They barely do: over 40 runs with
-saved per-token residuals, median activation commitment index 0.056 for
-failing runs against 0.040 for passing ones, and in a pairwise comparison
-the passing run commits earlier in 59% of pairs, where 50% would mean no
-difference. Early
-commitment survives in the class where retrieval demonstrably did not happen.
+A counter-argument was published here on 2026-08-31 and is withdrawn: it
+compared activation commitment between passing and failing runs, but on the
+wrong projection direction and the attempt-1 corpus (see the detector note in
+Limitations). Recomputed on `gate_gen` with the thinking:true direction, the
+corpus holds **2** failing runs against 10 passing ones — too few to compare.
+The contamination question is therefore open, with no evidence in this
+repository bearing on it either way.
 
 That is an argument, not a control. Settling it needs task families the model
 cannot have seen, with executable tests. If commitment moves later there, the

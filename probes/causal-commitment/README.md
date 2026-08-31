@@ -1,80 +1,83 @@
-# Causal commitment detection
+# Causal commitment detection — and why its numbers were void
 
-The scripts behind the fragility paragraph in the paper's `## Limitations`.
+**Read this before the code.** These scripts are correct. They were pointed at
+the wrong inputs, and the results they produced on 2026-08-31 have been
+withdrawn from the paper. The directory is kept because the mistake is
+instructive and the machinery is reusable once aimed properly.
 
-The commitment index as defined in `probes/analyze_commitment.py` is
-**retrospective by construction**: its Schmitt-trigger thresholds are taken from
-`min` and `max` of the *entire* derivative series of a run. It therefore cannot
-run online — you cannot trigger at token 60 on a threshold that is only fixed
-at token 1024. These scripts ask whether a causal estimator can reproduce its
-onsets well enough to trigger on.
+## What went wrong
 
-## Method
+The commitment index in `probes/analyze_commitment.py` projects per-token
+residuals onto a probe direction and Schmitt-triggers the plateau of the
+smoothed derivative. There are two directions in this project and two corpora,
+and the pairing matters:
 
-The retrospective detector stays fixed as the reference (centred smoothing
-W=5, dwell 8, per-run thresholds). Only the estimator changes. Agreement is
-`|CI_causal - CI_retrospective| <= 0.05`, and the pre-declared bar was 80% of
-runs.
+| | direction | corpus |
+|---|---|---|
+| attempt 1 (superseded) | `probe_L29.npz` — fitted on **thinking:false** activations | `work/gen`, 1024-token budget, 13 of 15 runs truncated |
+| attempt 2 (the result of record) | `probe_L29_tt.npz` — refit on **thinking:true**, CV-AUC 0.827 | `work/gate_gen`, 4096-token budget, 9 of 12 completed |
 
-Two threshold constructions, and naming them matters — the figures differ:
+The traces are thinking:true generations. Projecting them onto the
+thinking:false direction is exactly the pairing the paper identifies as the
+0.44 artifact. That is what these scripts did.
 
-- **running**: min/max over the prefix seen so far, warm-up 20 tokens.
-- **pooled**: fixed in advance as a quantile of the pooled derivative
-  distribution of all *other* runs (leave-one-out).
+The difference is not marginal. On `gate_gen`:
+
+| direction | projection SD | smoothed-derivative range | onset median | index median |
+|---|---|---|---|---|
+| `probe_L29.npz` | 5.87 | 12.75 | 76 tok | 0.029 |
+| `probe_L29_tt.npz` | **0.75** | **1.92** | 32 tok | **0.011** |
+
+The 0.011 reproduces the published figure exactly, and the 0.75 sits inside
+the 0.68–0.91 band the paper reports. The artifact direction has roughly eight
+times the amplitude, which is why it looked like a series with structure worth
+detecting.
+
+## What that means for the results
+
+On the corrected direction there is no plateau to reproduce: the series is a
+flat noise band, and the trigger fires wherever the noise first goes quiet.
+Asking whether a causal estimator reproduces that position is asking it to
+predict noise. Every agreement figure these scripts produced — the 30/40, the
+dwell and smoothing sweeps, the level statistic and its split-half check —
+describes the artifact, not the signal.
+
+One thing does survive, because it is a property of the detector rather than
+of the data: the Schmitt trigger takes its thresholds from the min and max of
+the *entire* series, so it cannot run online in any case.
+
+## A second defect, smaller and independent
+
+The index divides the onset by `n_gen`. In the attempt-1 corpus 35 of 40 runs
+hit the token cap, so `n_gen` is the constant 1024 and the index is the onset
+divided by an arbitrary number. Comparing such a run with one that ended
+naturally compares two different quantities. Onsets in tokens do not have this
+problem, and the corrected paragraph in the paper uses them. `gate_gen` is
+mostly completed chains and is largely free of this.
 
 ## Scripts
 
 | | |
 |---|---|
-| `causal_vs_retrospective.py` | the three estimators against the reference; the headline table |
+| `causal_vs_retrospective.py` | three causal estimators against the retrospective reference |
 | `dwell_sweep.py` | agreement as a function of dwell length |
 | `smoothing_sweep.py` | agreement as a function of the smoothing window |
-| `level_statistic_sweep.py` | statistics on the level rather than its derivative, 27 configurations |
-| `split_half.py` | choose the configuration on one half of the runs, score on the other |
+| `level_statistic_sweep.py` | statistics on the level rather than its derivative |
+| `split_half.py` | choose the configuration on one half, score on the other |
 
-## Results, as published
+All of them hard-code `probe_L29.npz` and the attempt-1 corpus. **Change both
+before reusing them**, and expect the plateau to disappear when you do —
+that is the point.
 
-- Causal, pooled thresholds: **30/40 = 75%** — below the bar. Running
-  thresholds: 27/40 = 68%.
-- Longer dwell makes it worse, monotonically: 30 / 26 / 17 / 10 / 3 of 40 at
-  dwell 8 / 16 / 24 / 32 / 48, and at 128 the detector never fires.
-- Stronger smoothing likewise: 30 / 24 / 8 / 0 of 40 at W = 5 / 9 / 15 / 25.
-- A level statistic (standard deviation over a trailing 16-token window,
-  threshold at the 0.30 pooled quantile) reaches 32/40 = 80% — but that is the
-  best of 27 swept configurations, and under split-half validation it gives
-  65 / 90 / 80 / 70%, mean 76%, indistinguishable from the derivative version.
+## Data
 
-The reading: there are no long quiet stretches. In both the well- and
-badly-reproduced groups, roughly a third of the points after the trigger exceed
-the run's own upper threshold. The plateau is the first of many marginally
-quiet windows rather than a regime change, which is why demanding more evidence
-removes the trigger instead of sharpening it.
+They read `work/probe_L29.npz`, `work/gen/`, `work/gen_select.json`, plus a
+second set of 25 runs extended on 2026-08-31 (`~/nacht-gen/`), generated with
+`llama-interruptus-gen` against `qwen36-27b-a3b-coder-Q4_K_M`, layer 29,
+temp 0.6 / top-p 0.95 / top-k 20 / seed 0, cap 1024. That extension was built
+to match `work/gen` — which was itself the wrong corpus to extend.
 
-## Data these need, and what is not published
+The residual sets are not in this repository; 40 runs of per-token
+2048-dimensional f32 is about 300 MB. Neither is `work/`.
 
-Run them from the working directory that holds `work/probe_L29.npz`,
-`work/gen/` and `work/gen_select.json`. They additionally read a second set of
-25 runs extended on 2026-08-31 (`~/nacht-gen/out` and `~/nacht-gen/select.json`
-on the machine they were produced on), generated with `llama-interruptus-gen`
-against the same model the probe was fitted on — `qwen36-27b-a3b-coder-Q4_K_M`,
-layer 29, temp 0.6 / top-p 0.95 / top-k 20 / seed 0, at most 1024 tokens.
-
-**The residual set itself is not in this repository** — 40 runs of per-token
-2048-dimensional f32 residuals are about 300 MB. Neither is `work/`; that is
-true of the whole paper, not just this directory. The scripts are here so the
-method is checkable; regenerating the data needs the extractor in `extractor/`
-and the model.
-
-## A note on the numbers above
-
-Two of them were wrong when first reported and are corrected here. The dwell
-sweep's percentages were once taken over the runs that *fired* rather than over
-all runs — at dwell 48 only 32 of 40 fire, so 3 hits is 7.5%, not 9.4%. The
-scripts now report counts so the denominator cannot drift. And a first
-description of this work in prose, without pointing at the code, was not enough
-for a second party to reproduce it: they reimplemented the running-threshold
-variant where the pooled one was meant, and got a different table. Hence this
-directory.
-
-Inline comments in the scripts are still German; the docstrings are not. That
-is a translation debt, not a functional one.
+Inline comments are German; the docstrings are not.
